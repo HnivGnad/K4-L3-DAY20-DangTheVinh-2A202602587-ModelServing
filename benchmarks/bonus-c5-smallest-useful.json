@@ -1,0 +1,82 @@
+[
+  {
+    "quant": "Q4_K_M",
+    "case": "arithmetic",
+    "pass": false,
+    "latency_ms": 17998.1,
+    "answer": "331",
+    "answer_md": "331"
+  },
+  {
+    "quant": "Q4_K_M",
+    "case": "grounded fact",
+    "pass": false,
+    "latency_ms": 16321.9,
+    "answer": "90",
+    "answer_md": "90"
+  },
+  {
+    "quant": "Q4_K_M",
+    "case": "translation",
+    "pass": true,
+    "latency_ms": 232.7,
+    "answer": "Hello",
+    "answer_md": "Hello"
+  },
+  {
+    "quant": "Q4_K_M",
+    "case": "sorting",
+    "pass": false,
+    "latency_ms": 300.1,
+    "answer": "1, 2, 3, 7",
+    "answer_md": "1, 2, 3, 7"
+  },
+  {
+    "quant": "Q4_K_M",
+    "case": "instruction",
+    "pass": true,
+    "latency_ms": 240.9,
+    "answer": "BLUE",
+    "answer_md": "BLUE"
+  },
+  {
+    "quant": "UD-Q2_K_XL",
+    "case": "arithmetic",
+    "pass": true,
+    "latency_ms": 47436.0,
+    "answer": "17 * 23 = 391",
+    "answer_md": "17 * 23 = 391"
+  },
+  {
+    "quant": "UD-Q2_K_XL",
+    "case": "grounded fact",
+    "pass": false,
+    "latency_ms": 19360.1,
+    "answer": "90",
+    "answer_md": "90"
+  },
+  {
+    "quant": "UD-Q2_K_XL",
+    "case": "translation",
+    "pass": false,
+    "latency_ms": 266.3,
+    "answer": "xin ch\u00e0o",
+    "answer_md": "xin ch\u00e0o"
+  },
+  {
+    "quant": "UD-Q2_K_XL",
+    "case": "sorting",
+    "pass": false,
+    "latency_ms": 344.7,
+    "answer": "1, 2, 3",
+    "answer_md": "1, 2, 3"
+  },
+  {
+    "quant": "UD-Q2_K_XL",
+    "case": "instruction",
+    "pass": true,
+    "latency_ms": 242.6,
+    "answer": "BLUE",
+    "answer_md": "BLUE"
+  }
+]

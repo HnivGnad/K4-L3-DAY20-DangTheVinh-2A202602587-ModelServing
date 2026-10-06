@@ -43,11 +43,20 @@ def main() -> int:
     print(f"  RAM {ram} GB -> grid {grid}")
     print(f"  ctx-size must cover the largest point: {max(grid)}\n")
 
-    out = labkit.run_bench([
-        "-m", model, "-t", str(labkit.threads(hw)), "-ngl", str(labkit.n_gpu_layers(hw)),
-        "-p", ",".join(str(g) for g in grid), "-n", "0", "-r", str(args.reps),
-    ])
-    points = labkit.bench_all_pp(out)
+    # Run one prompt length per invocation.  Recent llama-bench releases accept
+    # comma-separated values, but some Windows builds emit no parseable rows for
+    # that form.  Independent runs are slower but keep the sweep portable and
+    # make a failed point obvious without losing the rest of the grid.
+    points = []
+    for prompt_tokens in grid:
+        out = labkit.run_bench([
+            "-m", model, "-t", str(labkit.threads(hw)),
+            "-ngl", str(labkit.n_gpu_layers(hw)),
+            "-p", str(prompt_tokens), "-n", "0", "-r", str(args.reps),
+        ])
+        tokens_per_second = labkit.bench_metric(out, f"pp{prompt_tokens}")
+        if tokens_per_second:
+            points.append((prompt_tokens, tokens_per_second))
     if not points:
         labkit.die("Could not parse llama-bench output.",
                    "Run it by hand to see what happened:",
