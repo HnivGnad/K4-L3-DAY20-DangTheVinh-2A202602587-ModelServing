@@ -1,10 +1,10 @@
 # Reflection - Day 20 Model Serving
 
-**Họ Tên:** _(Người nộp tự bổ sung)_
+**Họ Tên:** _Đặng Thế Vinh_
 
-**MSSV:** _(Người nộp tự bổ sung)_
+**MSSV:** _2A202602587_
 
-**Cohort:** _(Người nộp tự bổ sung)_
+**Cohort:** _4_
 
 **Ngày hoàn thiện kỹ thuật:** 2026-10-06
 
