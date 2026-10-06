@@ -1,188 +1,146 @@
-# Reflection — Day 20 Lab (Personal Report)
+# Reflection - Day 20 Model Serving
 
-> **Đây là báo cáo cá nhân.** Số liệu của bạn **không** so sánh được với bạn cùng lớp
-> — chỉ so **before vs after trên chính máy bạn**. Rubric chấm độ rõ ràng của setup,
-> đo lường và **lập luận**, không chấm tốc độ tuyệt đối.
->
-> `make verify` sẽ fail nếu còn placeholder chưa điền. Đó là cố ý.
+**Họ Tên:** _(Người nộp tự bổ sung)_
 
-**Họ Tên:** _<Họ Tên>_
-**MSSV:** _<MSSV>_
-**Cohort:** _<A20-K1 / A20-K2 / ...>_
-**Ngày submit:** _<YYYY-MM-DD>_
+**MSSV:** _(Người nộp tự bổ sung)_
 
----
+**Cohort:** _(Người nộp tự bổ sung)_
 
-## 1. Hardware & runtime  *(rubric 1, 2 — 10 điểm)*
+**Ngày hoàn thiện kỹ thuật:** 2026-10-06
 
-> Từ `make probe`. Paste output hoặc điền tay.
+## 1. Hardware & runtime
 
-- **OS:** _<macOS 14 / Windows 11 / Ubuntu 24.04 / ...>_
-- **CPU:** _<Apple M2 / Intel i7-12700H / AMD Ryzen 7 5800H>_
-- **Cores:** _<physical / logical>_
-- **CPU extensions:** _<AVX2 / AVX-512 / NEON / —>_
-- **RAM:** _<GB>_
-- **Accelerator:** _<NVIDIA RTX 4060 / Apple Metal / Vulkan / CPU only>_
-- **llama.cpp asset đã tải:** _<vd: llama-b10488-bin-macos-arm64.tar.gz>_
-- **Model đã dùng:** _<Gemma 4 E2B / Qwen3.5 0.8B>_ (`LAB_MODEL=`_<gemma4-e2b / qwen35-0.8b>_)
-- **Quantization:** _<primary>_ + _<compare>_ (từ `models/active.json`)
+- **OS:** Windows 10 AMD64
+- **CPU:** 11th Gen Intel Core i7-11800H @ 2.30 GHz
+- **Cores:** 8 physical / 16 logical
+- **CPU extensions:** AVX2, AVX-512
+- **RAM:** 31.7 GB
+- **Accelerator:** NVIDIA RTX A2000 Laptop GPU, 4,096 MiB; Vulkan
+- **llama.cpp asset:** `llama-b10488-bin-win-vulkan-x64.zip`
+- **Model:** Qwen3.5 0.8B (`LAB_MODEL=qwen35-0.8b`)
+- **Quantization:** Q4_K_M + UD-Q2_K_XL
+- **Chạy ở đâu:** laptop local
 
-**Chạy ở đâu:** _<laptop của tôi / Colab / Kaggle>_
-_(Nếu dùng cloud fallback: nói rõ vì sao — RAM < 8 GB, setup fail, v.v. Không mất điểm.)_
+**Setup story:** Máy không có Python trên PATH và PowerShell 5.1 dùng console
+encoding cũ, nên script được sửa để tìm Python do `uv` quản lý và xuất UTF-8.
+Hardware probe cũng cần Windows fallbacks vì WMI bị từ chối. Hai GGUF được kiểm
+tra SHA-256 trước khi chạy; runtime Vulkan b10488 nhận cả iGPU Intel và RTX A2000.
 
-**Setup story** (≤ 80 chữ): điều gì cần thay đổi để lab chạy trên máy bạn? Có bước
-nào fail rồi phải workaround không?
-
-_Answer here._
-
----
-
-## 2. Đo lường  *(rubric 3, 4, 5 — 20 điểm)*
-
-> Paste bảng từ `benchmarks/01-quickstart-results.md` (`make bench` tự sinh).
+## 2. Đo lường
 
 | Quantization | Size (GB) | Load (ms) | TTFT P50/P95 (ms) | TPOT P50/P95 (ms) | E2E P50/P95/P99 (ms) | Decode (tok/s) |
 |---|--:|--:|--:|--:|--:|--:|
-| UD-Q4_K_XL | | | | | | |
-| UD-Q2_K_XL | | | | | | |
+| Q4_K_M | 0.50 | 17,638 | 300 / 361 | 13.3 / 14.3 | 1,090 / 1,249 / 1,249 | 74.9 |
+| UD-Q2_K_XL | 0.39 | 25,002 | 247 / 309 | 13.7 / 14.7 | 1,110 / 1,200 / 1,200 | 73.2 |
 
-**Quan sát** (≤ 60 chữ): 2-bit nhanh hơn bao nhiêu, và **có đáng không**? Bạn đã thử
-hỏi cùng một câu trên cả hai (`make serve` vs `.venv/bin/python labs/02-serve/serve.py --compare`)
-chưa? Chất lượng khác nhau thế nào?
+**Quan sát:** Q2 nhỏ hơn 22% nhưng decode chậm hơn khoảng 2.3% và cold start
+chậm hơn 7.4 giây, nên không đáng đổi trong giới hạn RAM này. Quality gate C5 cho
+cả hai chỉ đạt 2/5; Q2 còn thất bại ở bản dịch mà Q4 trả lời đúng. Tôi chọn Q4 và
+dùng validator cho tác vụ có định dạng chặt.
 
-_Answer here._
-
----
-
-## 3. Serving under load  *(rubric 8, 9, 10 — 20 điểm)*
-
-> Từ `benchmarks/02-server-results.md` (`make load-report`).
+## 3. Serving under load
 
 | Users | RPS | P50 (ms) | P95 (ms) | P99 (ms) | Eff. concurrency | Failures |
 |--:|--:|--:|--:|--:|--:|--:|
-| 10 | | | | | | |
-| 50 | | | | | | |
+| 10 | 0.14 | 29,000 | 29,000 | 29,000 | 3.9 | 0.0% |
+| 50 | 0.00 | 0 | 0 | 0 | 0.0 | 0.0% |
 
-- **Offered load tăng 5×, throughput thực tăng:** _<X.XX>×_
-- **P95 tăng:** _<X.XX>×_
-- **Effective concurrency ở 50 users:** _<số>_ so với `--parallel` = _<số>_ slots
+- **Offered load tăng 5x, throughput hoàn tất tăng:** 0.00x
+- **P95 tăng:** không xác định; không request nào hoàn tất trong cửa sổ 60 giây
+- **Effective concurrency ở 50 users:** số 0 bị censored, không phản ánh request đang chạy
+- **Peak `llamacpp:n_busy_slots_per_decode`:** 2.09 / 4 slots; `requests_processing` đạt 4
 
-**Peak `llamacpp:n_busy_slots_per_decode`** (từ `make metrics` khi `make load-50` đang
-chạy): _<số>_ / _<slots>_ slots
+**Saturation reading:** Ở 10 users, Little's Law đã cho 3.9 request đồng thời,
+gần bằng bốn slot. Ở 50 users, Prometheus vẫn thấy bốn request đang xử lý nhưng
+Locust không nhận được completion trước khi hết 60 giây. Vì vậy hàng số 0 là dữ
+liệu bị kiểm duyệt bởi thời lượng test, không phải headroom. Tôi sẽ giảm output
+cap/SLO budget hoặc scale replica trước khi tăng `--parallel`, vì thêm slot sẽ chia
+nhỏ hơn bandwidth vốn đã bão hòa.
 
-**Saturation reading** (≤ 80 chữ): server của bạn bão hoà ở đâu, và **bằng chứng nào**
-thuyết phục bạn? Nếu P95 tăng nhanh hơn RPS thì phần latency thêm đó là queue time hay
-compute time — bạn biết bằng cách nào? Nếu bạn phải nâng goodput@SLO, bạn sẽ đổi knob
-nào **trước**, và vì sao knob đó?
-
-_Answer here._
-
----
-
-## 4. Integration  *(rubric 12, 13 — 15 điểm)*
-
-> Từ `make pipeline`. Nói thật cái nào real, cái nào stub — stub **không** mất điểm.
+## 4. Integration
 
 | Day | Piece | Real hay stub? |
 |---|---|---|
-| N16 Cloud/IaC | | |
-| N17 Data pipeline | | |
-| N18 Lakehouse | | |
-| N19 Vector + features | | |
-| N20 Serving | `llama-server` | real |
+| N16 Cloud/IaC | local process | stub |
+| N17 Data pipeline | in-process fixture corpus | stub |
+| N18 Lakehouse | no external storage/table engine | stub |
+| N19 Vector + features | keyword-overlap retrieval | stub |
+| N20 Serving | `llama-server` HTTP | real |
 
-**Latency split** (mean của 3 query, từ output của `pipeline.py`):
+**Latency split** (mean 3 query):
 
-- embed: _<ms>_
-- retrieve: _<ms>_
-- llm: _<ms>_
-- **stage chiếm nhiều nhất:** _<stage>_ (_<%>_ của total)
+- embed: 0.0 ms
+- retrieve: 0.2 ms
+- llm: 14,351.6 ms
+- **stage chiếm nhiều nhất:** llm (xấp xỉ 100% total)
 
-**Reflection** (≤ 60 chữ): bottleneck ở đâu? Có khớp với kỳ vọng của bạn không? Nếu
-phải giảm latency của pipeline này 2×, bạn sẽ tấn công vào đâu?
+**Reflection:** LLM là bottleneck đúng như kỳ vọng với retriever in-memory, dù
+query đầu còn chịu residual work sau load test. Muốn giảm 2x, tôi sẽ tối ưu hoặc
+tách replica serving, áp dụng cấu hình bốn thread đã tune và giảm output budget.
+Tối ưu retrieve dưới 1 ms không thể thay đổi đáng kể tổng latency.
 
-_Answer here._
+## 5. The single change that mattered most
 
----
+**Change:** giảm `-t` từ default theo 8 physical cores xuống 4 thread.
 
-## 5. The single change that mattered most  *(rubric 11 — 10 điểm)*
-
-> **Phần quan trọng nhất của report.** Không cần bonus track: `make tune` đã cho bạn
-> một before/after thật (`benchmarks/01-tuning-tg128.md`). Đổi quantization,
-> `LAB_N_CTX`, hay `--parallel` rồi đo lại cũng được.
-
-**Change:** _<vd: hạ -t từ 16 xuống 8; vd: đổi sang UD-Q2_K_XL; vd: --parallel 4 → 8>_
-
-```
-before:  <số + đơn vị>
-after:   <số + đơn vị>
-speedup: <X.Y>×
+```text
+before:  85.2 tok/s (8 threads, tg128)
+after:   96.3 tok/s (4 threads, tg128)
+speedup: 1.13x
 ```
 
-**Tại sao nó work** (1–2 đoạn — đây là phần grader đọc kỹ nhất):
+Phần lớn graph đã offload qua Vulkan, nên CPU không còn đủ công việc độc lập để
+tám thread mang lại lợi ích. Bốn thread là điểm gối: chúng cung cấp đủ scheduling
+và phần CPU còn lại, trong khi tám thread tăng synchronization và tranh chấp
+cache/memory bandwidth. Dữ liệu cũng cho thấy đường cong không đơn điệu: 16 và 32
+thread hồi phục một phần nhưng vẫn không vượt bốn thread, phù hợp với overhead và
+OS scheduling hơn là thiếu FLOPs.
 
-_Giải thích như đang nói với bạn ngồi cạnh. Bám vào **cơ chế**, không phải "vibes":
-memory bandwidth? vector width? cache residency? scheduling? queueing? Nếu kết quả
-**khác** với kỳ vọng từ deck — nói rõ, và giải thích vì sao. Grader thưởng điểm cho
-lập luận đúng về một kết quả bất ngờ, hơn là một con số đẹp không được giải thích._
+## 6. Bonus
 
-_Answer here._
+**Đã làm:** B1 native source build + compare; B2 context-length sweep; B3
+before/after dưới đây; B4 challenge C5 smallest useful quant; B5 C8 semantic-cache
+offline threshold sweep.
 
----
-
-## 6. Bonus  *(optional — tối đa 10 điểm)*
-
-> Bỏ trống nếu không làm. Xem `docs/bonus/README.md`. Đừng làm hết — **một** finding sâu
-> ăn điểm hơn năm bảng nông.
-
-**Đã làm:** _<B1 build-compare / B2 sweep nào / B4 challenge nào / B5 lựa chọn nào>_
-
-**Numbers:**
-
-```
-before:  <số>
-after:   <số>
-speedup: <X.Y>×
+```text
+before:  32.7 tok/s (prebuilt, CPU ngl=0)
+after:   32.5 tok/s (source GGML_NATIVE=ON, CPU ngl=0)
+speedup: 0.99x (không có cải thiện có ý nghĩa)
 ```
 
-**Điều này nói lên gì mà deck chưa nói:**
+Native build dùng đúng source revision b10488 và Zig/Clang 21.1 vì máy thiếu
+Windows SDK. Cả hai phía được khóa `ngl=0`; do đó kết quả không trộn compiler với
+Vulkan. Prebuilt đã runtime-dispatch kernel phù hợp AVX2/AVX-512 và decode bị giới
+hạn bởi bandwidth, nên native build không thắng là kết quả hợp lý.
 
-_(để trống nếu bạn không làm phần này)_
+Context sweep tăng từ 71.0 ms ở 256 token lên 1,081.1 ms ở 4,096 token, nhưng chỉ
+bằng 0.95x dự đoán tuyến tính; quadratic bend chưa xuất hiện trong dải này. C5 cho
+thấy cả hai quant cần guardrail, còn Q2 có failure dịch thuật quan sát được. C8
+offline đạt 3/8 hit ở mọi threshold 0.70-0.95, chứng minh bag-of-words tạo đường
+cong phẳng và không đủ để chọn threshold production; cache phải được salt/isolate
+theo tenant để tránh leakage qua timing.
 
----
+## 7. Điều làm tôi ngạc nhiên nhất
 
-## 7. Điều làm bạn ngạc nhiên nhất  *(optional)*
+Quant 2-bit vừa nhỏ hơn nhưng không nhanh hơn, và source build native cũng không
+thắng prebuilt. Hai kết quả nhắc rằng tối ưu chỉ có giá trị khi đúng bottleneck:
+giảm bytes hoặc bật ISA không tự động tạo speedup nếu dequantization, scheduling
+hay memory bandwidth mới là giới hạn.
 
-_(1–2 câu. Không bắt buộc, nhưng grader đọc hết.)_
+## 8. Self-check
 
-_(để trống nếu bạn không làm phần này)_
+- [x] `hardware.json` và `models/active.json`
+- [x] benchmark hai quant và tuning report
+- [x] smoke test, load 10/50, metrics trùng load 50, saturation report
+- [x] integration report
+- [x] báo cáo bonus B1/B2/B4/B5 và mọi phần phân tích bắt buộc
+- [ ] thông tin cá nhân (được loại khỏi phạm vi theo yêu cầu)
+- [ ] screenshots (được loại khỏi phạm vi theo yêu cầu)
+- [ ] commit/push/public repo (chưa thực hiện tự động)
 
----
+## 9. Khai báo sử dụng AI
 
-## 8. Self-check trước khi push
-
-- [ ] `hardware.json` committed
-- [ ] `models/active.json` committed
-- [ ] `benchmarks/01-quickstart-results.md` committed (`make bench`)
-- [ ] `benchmarks/01-tuning-tg128.md` committed (`make tune`)
-- [ ] `benchmarks/02-server-results.md` committed (`make load-report`)
-- [ ] `benchmarks/02-server-batching-u50.md` hoặc `-metrics-u50.csv` committed (`make metrics`)
-- [ ] `benchmarks/locust-10_stats.csv` + `locust-50_stats.csv` committed (`make load-10` / `load-50`)
-- [ ] `benchmarks/03-integration-results.md` committed (`make pipeline`)
-- [ ] Mọi section **"required — replace this line"** trong các file `benchmarks/*.md`
-      đã được thay bằng nhận xét của bạn
-- [ ] 5 screenshots trong `submission/screenshots/`
-- [ ] `make verify` → **exit 0**
-- [ ] Repo tên đúng mẫu `K4-L3-DAY20-HoVaTen-MSSV-ModelServing` (xem `docs/SUBMISSION.md`)
-- [ ] Repo GitHub ở chế độ **public**
-- [ ] Đã push và paste public URL vào VinUni LMS **trước 23:59 (UTC+7) ngày làm lab**
-- [ ] **Không** commit `models/*.gguf`, `runtime/` hay `.env` (đã có trong `.gitignore`)
-
-**Quan trọng:** repo phải **public** đến khi điểm được công bố. Private → grader không
-xem được → 0 điểm.
-
----
-
-## 9. Khai báo sử dụng AI  *(xem `docs/RULES.md` §3)*
-
-_(Công cụ nào, dùng vào việc gì. Ghi "Không dùng" nếu không dùng.)_
+Đã dùng OpenAI Codex để đọc yêu cầu, sửa tính tương thích Windows, điều phối các
+phép đo, kiểm tra checksum, và biên soạn báo cáo. Toàn bộ con số benchmark trong
+bài được sinh từ các lệnh chạy thật trên máy này; không dùng số liệu giả lập cho
+các kết quả base. Báo cáo C8 ghi rõ riêng phần offline synthetic.
