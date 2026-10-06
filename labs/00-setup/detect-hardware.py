@@ -14,6 +14,76 @@ import shutil
 import subprocess
 import sys
 
+
+def windows_memory_gb() -> float:
+    """Read installed RAM without WMI (which is often disabled in sandboxes)."""
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MEMORYSTATUSEX()
+        status.dwLength = ctypes.sizeof(status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return round(status.ullTotalPhys / 1024**3, 1)
+    except (AttributeError, OSError, ValueError):
+        pass
+    return 0.0
+
+
+def windows_cpu_fallback(info: dict) -> None:
+    """Fill Windows CPU facts through APIs that do not require CIM/WMI access."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+        ) as key:
+            info["model"] = str(winreg.QueryValueEx(key, "ProcessorNameString")[0]).strip()
+    except (OSError, ImportError):
+        pass
+
+    # GetLogicalProcessorInformation returns one record per physical core for the
+    # RelationProcessorCore relationship. This remains available when WMI is blocked.
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class SYSTEM_LOGICAL_PROCESSOR_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("ProcessorMask", ctypes.c_size_t),
+                ("Relationship", ctypes.c_int),
+                ("Reserved", ctypes.c_ulonglong * 2),
+            ]
+
+        needed = wintypes.DWORD(0)
+        fn = ctypes.windll.kernel32.GetLogicalProcessorInformation
+        fn(None, ctypes.byref(needed))
+        count = needed.value // ctypes.sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION)
+        records = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION * count)()
+        if count and fn(records, ctypes.byref(needed)):
+            cores = sum(1 for record in records if record.Relationship == 0)
+            if cores:
+                info["cores_physical"] = cores
+
+        is_feature = ctypes.windll.kernel32.IsProcessorFeaturePresent
+        info["avx2"] = bool(is_feature(40))  # PF_AVX2_INSTRUCTIONS_AVAILABLE
+        info["avx512"] = bool(is_feature(41))  # PF_AVX512F_INSTRUCTIONS_AVAILABLE
+    except (AttributeError, OSError, ValueError):
+        pass
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "lib"))
 import labkit  # noqa: E402
 
@@ -76,6 +146,10 @@ def detect_cpu() -> dict:
                 info["cores_physical"] = int(data.get("NumberOfCores") or 0) or None
             except (ValueError, KeyError):
                 pass
+        # Always collect instruction-set flags through the Win32 API. When WMI
+        # succeeded this only confirms the same model/core facts; when WMI is
+        # blocked it supplies all of them.
+        windows_cpu_fallback(info)
     info.setdefault("model", "unknown")
     if not info.get("cores_physical"):
         info["cores_physical"] = info["cores_logical"]
@@ -100,9 +174,12 @@ def detect_ram_gb() -> float:
              "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"],
             timeout=20,
         )
-        digits = "".join(c for c in out if c.isdigit())
-        if digits:
-            return round(int(digits) / 1024**3, 1)
+        # Only parse a clean numeric output. Concatenating digits from an access-denied
+        # error can otherwise turn its HRESULT into a fictitious petabyte RAM value.
+        value = out.strip()
+        if rc == 0 and value.isdigit():
+            return round(int(value) / 1024**3, 1)
+        return windows_memory_gb()
     return 0.0
 
 
@@ -229,7 +306,7 @@ def main() -> int:
     runtime_meta = labkit.repo_root() / "runtime" / "active.json"
     if runtime_meta.exists():
         try:
-            asset = json.loads(runtime_meta.read_text()).get("asset", "?")
+            asset = json.loads(runtime_meta.read_text(encoding="utf-8")).get("asset", "?")
         except (ValueError, OSError):
             asset = "?"
         print(f"  llama.cpp     : prebuilt release {labkit.LLAMA_CPP_BUILD}  ({asset})")
@@ -269,7 +346,7 @@ def main() -> int:
         },
         "recommendation": rec,
     }
-    labkit.hardware_json().write_text(json.dumps(out, indent=2))
+    labkit.hardware_json().write_text(json.dumps(out, indent=2), encoding="utf-8")
     print(f"\nSaved {labkit.hardware_json().name} -- every other track reads this.")
     return 0
 

@@ -294,7 +294,8 @@ def main() -> int:
         json.dumps({"build": BUILD, "asset": asset,
                     "llama_server": str(server.relative_to(labkit.repo_root())),
                     "llama_bench": str(bench.relative_to(labkit.repo_root())) if bench else None},
-                   indent=2)
+                   indent=2),
+        encoding="utf-8",
     )
     print("\n==> Runtime ready. No compiler required.")
     return 0

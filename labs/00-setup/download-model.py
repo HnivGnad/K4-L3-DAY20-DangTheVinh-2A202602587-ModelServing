@@ -31,17 +31,31 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "lib"))
 import labkit  # noqa: E402
 
 
-def find_local(models_dir: pathlib.Path, filename: str) -> pathlib.Path | None:
+def find_local(models_dir: pathlib.Path, filename: str,
+               expected_gb: float | None = None) -> pathlib.Path | None:
     for p in models_dir.rglob(filename):
-        if p.is_file():
+        if not p.is_file():
+            continue
+        # Interrupted browser/curl downloads can leave a correctly named partial
+        # file behind. Do not let that masquerade as a usable model on the next run.
+        if expected_gb is not None:
+            expected_bytes = expected_gb * 1024**3
+            if not (0.9 * expected_bytes <= p.stat().st_size <= 1.1 * expected_bytes):
+                print(f"    ignoring incomplete/wrong-size file: "
+                      f"{p.relative_to(labkit.repo_root())} ({p.stat().st_size} bytes)")
+                continue
+        with p.open("rb") as fh:
+            magic = fh.read(4)
+        if magic == b"GGUF":
             return p
     return None
 
 
-def fetch(repo_id: str, filename: str, models_dir: pathlib.Path) -> pathlib.Path:
+def fetch(repo_id: str, filename: str, models_dir: pathlib.Path,
+          expected_gb: float | None = None) -> pathlib.Path:
     from huggingface_hub import hf_hub_download
 
-    existing = find_local(models_dir, filename)
+    existing = find_local(models_dir, filename, expected_gb)
     if existing:
         print(f"    already present: {existing.relative_to(labkit.repo_root())}")
         return existing
@@ -74,18 +88,21 @@ def main() -> int:
     print(f"    (other option: LAB_MODEL={other} -> {labkit.MODELS[other]['label']}, "
           f"~{labkit.MODELS[other]['download_gb']} GB)")
 
-    wanted = [labkit.primary_file(key), labkit.compare_file(key)]
+    wanted = [
+        (labkit.primary_file(key), float(spec["primary"][2])),
+        (labkit.compare_file(key), float(spec["compare"][2])),
+    ]
     if args.with_mtp:
         mtp = labkit.mtp_file(key)
         if mtp:
-            wanted.append(mtp)
+            wanted.append((mtp, None))
         else:
             print(f"    (--with-mtp ignored: {spec['label']} publishes no MTP head)")
 
     resolved: dict[str, pathlib.Path] = {}
     if args.skip_download:
-        for f in wanted:
-            found = find_local(models_dir, f)
+        for f, expected_gb in wanted:
+            found = find_local(models_dir, f, expected_gb)
             if not found:
                 labkit.die(
                     f"--skip-download but {f} is not under models/.",
@@ -95,8 +112,8 @@ def main() -> int:
             resolved[f] = found
     else:
         try:
-            for f in wanted:
-                resolved[f] = fetch(repo, f, models_dir)
+            for f, expected_gb in wanted:
+                resolved[f] = fetch(repo, f, models_dir, expected_gb)
         except ImportError:
             labkit.die("huggingface_hub not installed.", "Run: make setup")
         except Exception as exc:  # noqa: BLE001 -- surface the real cause to the student
@@ -104,12 +121,13 @@ def main() -> int:
             print("\nGrab the files by hand instead — either in a browser:", file=sys.stderr)
             print(f"  {labkit.model_repo_url(key=key)}/tree/main", file=sys.stderr)
             print("\nor on the command line:", file=sys.stderr)
-            for f in wanted:
+            for f, _expected_gb in wanted:
                 print(f"  curl -L -o models/{f} \\\n    {labkit.model_file_url(f, key=key)}",
                       file=sys.stderr)
             print("\nIf Hugging Face is blocked entirely, the same paths work on the mirror:",
                   file=sys.stderr)
-            print(f"  {labkit.model_file_url(wanted[0], mirror=True, key=key)}", file=sys.stderr)
+            print(f"  {labkit.model_file_url(wanted[0][0], mirror=True, key=key)}",
+                  file=sys.stderr)
             print("\nThen write the manifest:", file=sys.stderr)
             print(f"  {sys.executable} labs/00-setup/download-model.py --skip-download",
                   file=sys.stderr)
@@ -135,7 +153,7 @@ def main() -> int:
         "mlx_repo": spec["mlx_repo"],
     }
     labkit.active_json().parent.mkdir(exist_ok=True)
-    labkit.active_json().write_text(json.dumps(manifest, indent=2))
+    labkit.active_json().write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     total_gb = sum(p.stat().st_size for p in resolved.values()) / 1024**3
     print(f"\n==> Wrote models/active.json  ({total_gb:.1f} GB on disk)")

@@ -1,5 +1,5 @@
 <#
-  Windows runner — the equivalent of `make <target>` for students without make.
+  Windows runner -- the equivalent of `make <target>` for students without make.
 
   Works in Windows PowerShell 5.1 (powershell.exe) and PowerShell 7+ (pwsh).
 
@@ -12,7 +12,7 @@
       .\lab.ps1 verify
 
   Every target maps 1:1 to the make target of the same name, so docs/GUIDE.md applies
-  as written — just substitute `.\lab.ps1 x` for `make x`.
+  as written -- just substitute `.\lab.ps1 x` for `make x`.
 #>
 param(
     [Parameter(Position = 0)] [string] $Target = "help",
@@ -24,7 +24,34 @@ Set-Location $PSScriptRoot
 
 $VenvPy = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
 $Port   = if ($env:LAB_SERVER_PORT) { $env:LAB_SERVER_PORT } else { '8080' }
-$SysPy  = 'python'
+
+# Resolve an actual interpreter path. On Windows, `py.exe` can exist even when no
+# registered Python does, while uv-managed Python is intentionally absent from PATH.
+$SysPy = $null
+$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+if ($pythonCmd) {
+    & $pythonCmd.Source -c "import sys" 2>$null
+    if ($LASTEXITCODE -eq 0) { $SysPy = $pythonCmd.Source }
+}
+if (-not $SysPy) {
+    $uvCmd = Get-Command uv -ErrorAction SilentlyContinue
+    if ($uvCmd) {
+        if (-not $env:UV_CACHE_DIR) { $env:UV_CACHE_DIR = Join-Path $PSScriptRoot '.uv-cache' }
+        $candidate = & $uvCmd.Source python find 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $candidate)) { $SysPy = $candidate }
+    }
+}
+if (-not $SysPy) {
+    $pyCmd = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyCmd) {
+        $candidate = & $pyCmd.Source -3 -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $candidate)) { $SysPy = $candidate }
+    }
+}
+if (-not $SysPy) {
+    Write-Host "ERROR: Python >= 3.10 was not found (PATH, py launcher, or uv)." -ForegroundColor Red
+    exit 1
+}
 
 function Need-Venv {
     if (-not (Test-Path $VenvPy)) {
@@ -45,7 +72,7 @@ function Locust {
 switch ($Target) {
     'help' {
         Write-Host ""
-        Write-Host "Day 20 lab — Windows runner" -ForegroundColor Cyan
+        Write-Host "Day 20 lab -- Windows runner" -ForegroundColor Cyan
         Write-Host "Usage:  .\lab.ps1 <target>"
         Write-Host ""
         Write-Host "Setup (00)"
@@ -120,19 +147,33 @@ switch ($Target) {
     'semantic-cache-offline' { Py bonus\serving-regimes\semantic-cache-demo.py --offline --sweep }
 
     'build-llama' {
-        foreach ($t in 'cmake', 'git') {
-            if (-not (Get-Command $t -ErrorAction SilentlyContinue)) {
-                Write-Host "ERROR: $t not found. Install Visual Studio Build Tools + cmake + git." -ForegroundColor Red
-                exit 1
-            }
+        Need-Venv
+        $cmakeCmd = Get-Command cmake -ErrorAction SilentlyContinue
+        $venvCmake = Join-Path (Split-Path $VenvPy) 'cmake.exe'
+        $cmakeExe = if ($cmakeCmd) { $cmakeCmd.Source } elseif (Test-Path $venvCmake) { $venvCmake } else { $null }
+        if (-not $cmakeExe) {
+            Write-Host "ERROR: cmake not found. Install it system-wide or into .venv." -ForegroundColor Red
+            exit 1
+        }
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Write-Host "ERROR: git not found." -ForegroundColor Red
+            exit 1
         }
         $build = & $VenvPy -c "import sys;sys.path.insert(0,'lib');import labkit;print(labkit.LLAMA_CPP_BUILD)"
         if (-not (Test-Path 'bonus\llama.cpp')) {
             git clone --depth 1 --branch $build https://github.com/ggml-org/llama.cpp bonus\llama.cpp
         }
         $flags = if ($env:LLAMA_CMAKE_FLAGS) { $env:LLAMA_CMAKE_FLAGS -split ' ' } else { @() }
-        cmake -B bonus\llama.cpp\build -S bonus\llama.cpp @flags -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release
-        cmake --build bonus\llama.cpp\build -j --config Release
+        & $cmakeExe -B bonus\llama.cpp\build -S bonus\llama.cpp @flags -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: llama.cpp configuration failed (exit $LASTEXITCODE)." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+        & $cmakeExe --build bonus\llama.cpp\build -j --config Release
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: llama.cpp build failed (exit $LASTEXITCODE)." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
         Write-Host ""
         Write-Host "Built. Now compare it against the prebuilt binary:  .\lab.ps1 compare-builds"
     }

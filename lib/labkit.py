@@ -24,6 +24,13 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+# Windows PowerShell 5.1 commonly exposes a legacy cp1252 console even when the
+# source file and reports are UTF-8.  Keep CLI output deterministic across the
+# lab commands instead of crashing on banners or status symbols.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # Pinned llama.cpp release. Gemma 4 (architecture "gemma4", April 2026) needs a
 # build newer than that; this one is well past it. Bump deliberately, not casually.
 LLAMA_CPP_BUILD = "b10488"
@@ -80,7 +87,7 @@ def model_key() -> str:
     p = active_json()
     if p.exists():
         try:
-            key = json.loads(p.read_text()).get("model_key")
+            key = json.loads(p.read_text(encoding="utf-8")).get("model_key")
             if key in MODELS:
                 return key
         except (ValueError, OSError):
@@ -197,7 +204,7 @@ def load_hardware(required: bool = True) -> dict:
         if required:
             die("hardware.json not found.", "Run: make probe")
         return {}
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def load_active(required: bool = True) -> dict:
@@ -206,7 +213,7 @@ def load_active(required: bool = True) -> dict:
         if required:
             die("models/active.json not found.", "Run: make setup")
         return {}
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def primary_model() -> str:
@@ -510,9 +517,9 @@ def run_bench(args: list[str], timeout: int = 1800) -> str:
 
 def write_report(filename: str, markdown: str, data: object | None = None) -> Path:
     out = bench_dir() / filename
-    out.write_text(markdown)
+    out.write_text(markdown, encoding="utf-8")
     if data is not None:
-        out.with_suffix(".json").write_text(json.dumps(data, indent=2))
+        out.with_suffix(".json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     return out
 
 
