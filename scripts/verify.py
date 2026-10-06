@@ -71,7 +71,10 @@ def is_committed(path: pathlib.Path) -> bool | None:
     if TRACKED is None:
         return None
     try:
-        rel = str(path.resolve().relative_to(labkit.repo_root()))
+        # git always reports repository paths with forward slashes, including on
+        # Windows. pathlib's native string uses backslashes there, which made every
+        # committed file below a subdirectory look untracked.
+        rel = path.resolve().relative_to(labkit.repo_root()).as_posix()
     except ValueError:
         return None
     return rel in TRACKED
